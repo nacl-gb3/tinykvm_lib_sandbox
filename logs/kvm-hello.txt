@@ -1,0 +1,8 @@
+* Loading segment of size 170037 from 0x7f78f9d1c010 to virtual 0x200000
+* Loading segment of size 45148 from 0x7f78f9d46010 to virtual 0x22a000
+* Loading segment of size 9708 from 0x7f78f9d51270 to virtual 0x236260
+* Entry is at 0x21de40
+* BRK is at 0x3ca000 -> 0x400000
+* Stack is at 0x23a000 -> 0x3ca000
+* Heap starts at 0x400000
+hello chat;Time: 0.004567s Return value: 0

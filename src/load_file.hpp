@@ -1,4 +1,6 @@
 #include <stdexcept>
+#include <vector>
+#include <stdint.h>
 
 std::vector<uint8_t> load_file(const std::string& filename)
 {

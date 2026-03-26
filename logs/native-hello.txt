@@ -1,0 +1,5 @@
+hello chat;
+________________________________________________________
+Executed in    6.10 millis    fish           external
+   usr time    1.62 millis    1.62 millis    0.00 millis
+   sys time    4.63 millis    2.25 millis    2.38 millis
