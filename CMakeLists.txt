@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(tinykvm_sandbox CXX C)
+project(tinykvm_lib_sandbox CXX C)
 
 option(FLTO "Link-time optimizations" OFF)
 option(SANITIZE "Enable address and ub sanitizers" OFF)
