@@ -5,6 +5,7 @@ option(FLTO "Link-time optimizations" OFF)
 option(SANITIZE "Enable address and ub sanitizers" OFF)
 
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -O2 -ggdb3")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if (FLTO)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=thin")
