@@ -33,7 +33,7 @@ inline timespec time_now();
 inline long nanodiff(timespec start_time, timespec end_time);
 
 int sandbox_run(char const *shmpath) {
-  char prog[] = "./hello_shm";
+  char prog[] = "./build/helloshm";
   std::vector<uint8_t> binary;
   std::vector<std::string> args;
   std::string filename = prog;
