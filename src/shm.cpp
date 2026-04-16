@@ -45,31 +45,12 @@ int main(int argc, char const *argv[]) {
   int fd;
   struct shmbuf *shmp;
 
-  char shmpath[] = "/shm_my";
-
-  std::cout << "shm_open\n";
-  fd = shm_open(shmpath, O_CREAT | O_EXCL | O_RDWR, 0777);
-  if (fd == -1)
-    errExit("shm_open");
-
-  std::cout << "ftruncate\n";
-  if (ftruncate(fd, sizeof(struct shmbuf)) == -1)
-    errExit("ftruncate");
-
   /* Map the object into the caller's address space. */
 
-  std::cout << "mmap\n";
-  shmp = (struct shmbuf *)mmap(NULL, sizeof(*shmp), PROT_READ | PROT_WRITE,
-                               MAP_SHARED, fd, 0);
-  if (shmp == MAP_FAILED)
-    errExit("mmap");
+  char str[11] = "hello";
+  size_t len = 11;
 
   /* Initialize semaphores as process-shared, with value 0. */
-
-  if (sem_init(&shmp->sem1, 1, 0) == -1)
-    errExit("sem_init-sem1");
-  if (sem_init(&shmp->sem2, 1, 0) == -1)
-    errExit("sem_init-sem2");
 
   int sandbox_fd = fork();
   if (sandbox_fd == -1) {
@@ -77,12 +58,12 @@ int main(int argc, char const *argv[]) {
     return errno;
   } else if (!sandbox_fd) {
     /* Step 2: Run the vmsetup code from simple.cpp and fix bugs as needed */
-    //char *args[3] = {"./hello_shm", shmpath, nullptr};
-    //int err = execv("./hello_shm", args);
-    err = sandbox_run(shmpath);
-    perror("hello_shm");
-    sem_post(&shmp->sem1);
-    shm_unlink(shmpath);
+    // char *args[3] = {"./hello_shm", shmpath, nullptr};
+    // int err = execv("./hello_shm", args);
+    err = sandbox_run("/tmp");
+    if (err) {
+      perror("hello_shm");
+    }
     return err;
   }
   std::cout << "successful fork\n";
@@ -90,13 +71,7 @@ int main(int argc, char const *argv[]) {
   /* Wait for 'sem1' to be posted by peer before touching
      shared memory. */
 
-  if (sem_wait(&shmp->sem1) == -1)
-    errExit("sem_wait");
-
   // print shared result
-  char buf[1024 * 4];
-  strlcpy(buf, (char *)shmp->buf, 1024 * 4);
-  std::cout << std::string((char *)shmp->buf);
 
   /*
   // create a buffer for input bytes
@@ -140,8 +115,6 @@ int main(int argc, char const *argv[]) {
   delete[] input_stream;
   delete[] output_stream;
   */
-
-  shm_unlink(shmpath);
 
   return err;
 }

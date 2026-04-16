@@ -2304,9 +2304,12 @@ void Machine::setup_linux_system_calls(bool unsafe_syscalls)
 			{
 				try {
 					int pfd = cpu.machine().fds().current_working_directory_fd();
+					SYSPRINT("OPENAT cwd pfd=%d\n", pfd);
 					if (vfd != AT_FDCWD) {
 						pfd = cpu.machine().fds().translate(vfd);
+						SYSPRINT("OPENAT translated pfd=%d\n", pfd);
 					}
+					SYSPRINT("OPENAT vfd=%d\n", vfd);
 
 					real_path = path;
 					if (!cpu.machine().fds().is_writable_path(real_path)) {

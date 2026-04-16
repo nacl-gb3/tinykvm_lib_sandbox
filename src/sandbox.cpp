@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <tinykvm/machine.hpp>
 
@@ -19,6 +20,8 @@
 
 #define GUEST_MEMORY 0x80000000             /* 2GB memory */
 #define GUEST_WORK_MEM 1024UL * 1024 * 1024 /* MB working mem */
+
+uint8_t intermem[4096];
 
 static uint64_t verify_exists(tinykvm::Machine &vm, const char *name) {
   uint64_t addr = vm.address_of(name);
@@ -59,10 +62,33 @@ int sandbox_run(char const *shmpath) {
         case 0x10000:
           cpu.stop();
           break;
-        case 0x10001:
-          throw "Unimplemented";
-        case 0x10707:
-          throw "Unimplemented";
+        case 0x10303: {
+          //printf("CALLING COPY FROM HOST: 0x%x\n", scall);
+          auto regs = cpu.registers();
+          uint64_t addr = (uint64_t)regs.rdi;
+          size_t len = (size_t)regs.rsi;
+          cpu.machine().copy_to_guest(addr, intermem, len);
+          // TODO: think of ways that things can go wrong and
+          // handle them
+          regs.rax = 0;
+          cpu.set_registers(regs);
+          // printf("FINISHED COPY FROM HOST: 0x%x\n", scall);
+          break;
+        }
+        case 0x10505: {
+          // printf("CALLING COPY TO HOST: 0x%x\n", scall);
+          auto regs = cpu.registers();
+          uint64_t addr = (uint64_t)regs.rdi;
+          size_t len = (size_t)regs.rsi;
+          cpu.machine().copy_from_guest(intermem, addr, len);
+          printf("%s\n", (char *)intermem);
+          // TODO: think of ways that things can go wrong and
+          // handle them
+          regs.rax = 0;
+          cpu.set_registers(regs);
+          // printf("FINISHED COPY TO HOST: 0x%x\n", scall);
+          break;
+        }
         default:
           printf("Unhandled system call: %u\n", scall);
           auto regs = cpu.registers();
@@ -101,7 +127,11 @@ int sandbox_run(char const *shmpath) {
     static const std::vector<std::string> allowed_readable_paths({
         prog,
         abs_shmpath,
+        "/dev/shm",
+        "/dev",
+        "/",
         ".",
+        "/tmp/test",
 
         // process information
         //"/proc/self/exe", // causes SIGSEGV when uncommented
@@ -150,15 +180,17 @@ int sandbox_run(char const *shmpath) {
     });
 
     // allow writes to shared memory
-    static const std::vector<std::string> allowed_writable_paths({
-        abs_shmpath,
-    });
+    static const std::vector<std::string> allowed_writable_paths(
+        {abs_shmpath, "/tmp/test", "README.md"});
     master_vm.fds().set_open_writable_callback([&](std::string &path) -> bool {
       return std::find(allowed_writable_paths.begin(),
                        allowed_writable_paths.end(),
                        path) != allowed_writable_paths.end();
     });
   }
+
+  // for debugging information
+  // master_vm.set_verbose_system_calls(true);
 
   master_vm.setup_linux(args, {"LC_TYPE=C", "LC_ALL=C", "USER=root"});
 
@@ -210,6 +242,9 @@ int sandbox_run(char const *shmpath) {
   auto t0 = time_now();
   asm("" ::: "memory");
 
+  char buf[6] = "hello";
+  memcpy(intermem, buf, 6);
+
   /* Normal execution of _start -> main() */
   try {
     master_vm.run();
@@ -222,6 +257,17 @@ int sandbox_run(char const *shmpath) {
     master_vm.print_registers();
     throw;
   }
+
+  asm("" ::: "memory");
+  auto t1 = time_now();
+  asm("" ::: "memory");
+
+  if (call_addr == 0x0) {
+    double t = nanodiff(t0, t1) / 1e9;
+    printf("Time: %fs Return value: %ld\n", t, master_vm.return_value());
+  }
+
+  return master_vm.return_value();
 }
 
 timespec time_now() {
