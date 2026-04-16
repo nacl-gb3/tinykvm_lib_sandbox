@@ -19,12 +19,22 @@
 /* Define a structure that will be imposed on the shared
    memory object */
 
-struct shmbuf {
-  sem_t sem1;            /* POSIX unnamed semaphore */
-  sem_t sem2;            /* POSIX unnamed semaphore */
-  size_t cnt;            /* Number of bytes used in 'buf' */
-  uint8_t buf[BUF_SIZE]; /* Data being transferred */
+struct intermem {
+   uint8_t *buf; 
+   size_t size;
 };
 
-int sandbox_run(char const *);
+struct shmbuf {
+  // replace with monitors
+  sem_t sem1;            /* POSIX unnamed semaphore */
+  sem_t sem2;            /* POSIX unnamed semaphore */
+  int fd;                /* file descriptior */
+  struct intermem im;    /* memory buffer */
+};
+
+
+#define BASE_INTERMEM_SIZE 4096
+
+int sandbox_run(uint8_t);
+
 #endif

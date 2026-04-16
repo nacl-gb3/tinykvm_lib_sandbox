@@ -41,9 +41,6 @@ int main(int argc, char const *argv[]) {
   int err = 0;
   /* HIGH LEVEL IDEA */
 
-  // source for shared memory setup: shm_open man page
-  int fd;
-  struct shmbuf *shmp;
 
   /* Map the object into the caller's address space. */
 
@@ -58,9 +55,7 @@ int main(int argc, char const *argv[]) {
     return errno;
   } else if (!sandbox_fd) {
     /* Step 2: Run the vmsetup code from simple.cpp and fix bugs as needed */
-    // char *args[3] = {"./hello_shm", shmpath, nullptr};
-    // int err = execv("./hello_shm", args);
-    err = sandbox_run("/tmp");
+    err = sandbox_run(1);
     if (err) {
       perror("hello_shm");
     }

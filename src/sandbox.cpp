@@ -7,6 +7,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
@@ -21,8 +22,6 @@
 #define GUEST_MEMORY 0x80000000             /* 2GB memory */
 #define GUEST_WORK_MEM 1024UL * 1024 * 1024 /* MB working mem */
 
-uint8_t intermem[4096];
-
 static uint64_t verify_exists(tinykvm::Machine &vm, const char *name) {
   uint64_t addr = vm.address_of(name);
   if (addr == 0x0) {
@@ -35,7 +34,17 @@ static uint64_t verify_exists(tinykvm::Machine &vm, const char *name) {
 inline timespec time_now();
 inline long nanodiff(timespec start_time, timespec end_time);
 
-int sandbox_run(char const *shmpath) {
+struct shmbuf shm;
+
+int sandbox_run(size_t im_page_cnt) {
+  shm.fd = open("/tmp/shm", O_RDWR);
+  if (shm.fd == -1) {
+    return -1;
+  }
+  shm.im.size = im_page_cnt * BASE_INTERMEM_SIZE;
+  shm.im.buf = (uint8_t *)mmap(NULL, shm.im.size, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, shm.fd, 0);
+
   char prog[] = "./build/helloshm";
   std::vector<uint8_t> binary;
   std::vector<std::string> args;
@@ -52,7 +61,6 @@ int sandbox_run(char const *shmpath) {
   }
 
   args.push_back(prog);
-  args.push_back(shmpath);
 
   tinykvm::Machine::init();
 
@@ -63,13 +71,13 @@ int sandbox_run(char const *shmpath) {
           cpu.stop();
           break;
         case 0x10303: {
-          //printf("CALLING COPY FROM HOST: 0x%x\n", scall);
+          // printf("CALLING COPY FROM HOST: 0x%x\n", scall);
           auto regs = cpu.registers();
           uint64_t addr = (uint64_t)regs.rdi;
           size_t len = (size_t)regs.rsi;
-          cpu.machine().copy_to_guest(addr, intermem, len);
           // TODO: think of ways that things can go wrong and
           // handle them
+          cpu.machine().copy_to_guest(addr, shm.im.buf, len);
           regs.rax = 0;
           cpu.set_registers(regs);
           // printf("FINISHED COPY FROM HOST: 0x%x\n", scall);
@@ -80,10 +88,10 @@ int sandbox_run(char const *shmpath) {
           auto regs = cpu.registers();
           uint64_t addr = (uint64_t)regs.rdi;
           size_t len = (size_t)regs.rsi;
-          cpu.machine().copy_from_guest(intermem, addr, len);
-          printf("%s\n", (char *)intermem);
           // TODO: think of ways that things can go wrong and
           // handle them
+          cpu.machine().copy_from_guest(shm.im.buf, addr, len);
+          printf("%s\n", (char *)shm.im.buf);
           regs.rax = 0;
           cpu.set_registers(regs);
           // printf("FINISHED COPY TO HOST: 0x%x\n", scall);
@@ -116,22 +124,16 @@ int sandbox_run(char const *shmpath) {
       .relocate_fixed_mmap = (getenv("GO") == nullptr),
       .executable_heap = dyn_elf.is_dynamic,
   };
+
   tinykvm::Machine master_vm{binary, options};
   // master_vm.print_pagetables();
-  std::stringstream ss;
-  ss << "/dev/shm" << shmpath;
-  std::string abs_shmpath = ss.str();
   if (dyn_elf.is_dynamic) {
     // TODO: figure out how to automate this
     // allow reads from following paths
     static const std::vector<std::string> allowed_readable_paths({
         prog,
-        abs_shmpath,
-        "/dev/shm",
-        "/dev",
         "/",
         ".",
-        "/tmp/test",
 
         // process information
         //"/proc/self/exe", // causes SIGSEGV when uncommented
@@ -180,13 +182,14 @@ int sandbox_run(char const *shmpath) {
     });
 
     // allow writes to shared memory
-    static const std::vector<std::string> allowed_writable_paths(
-        {abs_shmpath, "/tmp/test", "README.md"});
-    master_vm.fds().set_open_writable_callback([&](std::string &path) -> bool {
-      return std::find(allowed_writable_paths.begin(),
-                       allowed_writable_paths.end(),
-                       path) != allowed_writable_paths.end();
-    });
+    // static const std::vector<std::string> allowed_writable_paths(
+    //     {abs_shmpath, "/tmp/test", "README.md"});
+    // master_vm.fds().set_open_writable_callback([&](std::string &path) -> bool
+    // {
+    //   return std::find(allowed_writable_paths.begin(),
+    //                    allowed_writable_paths.end(),
+    //                    path) != allowed_writable_paths.end();
+    // });
   }
 
   // for debugging information
@@ -243,7 +246,7 @@ int sandbox_run(char const *shmpath) {
   asm("" ::: "memory");
 
   char buf[6] = "hello";
-  memcpy(intermem, buf, 6);
+  memcpy(shm.im.buf, buf, 6);
 
   /* Normal execution of _start -> main() */
   try {
@@ -270,11 +273,33 @@ int sandbox_run(char const *shmpath) {
   return master_vm.return_value();
 }
 
+struct shmbuf get_shm_obj() {
+
+  struct shmbuf nshm;
+
+  nshm.sem1 = shm.sem1;
+  nshm.sem2 = shm.sem2;
+  nshm.fd = shm.fd;
+  nshm.im = {
+      .buf = (uint8_t *)mmap(NULL, shm.im.size, PROT_READ | PROT_WRITE,
+                             MAP_SHARED, shm.fd, 0),
+
+      .size = shm.im.size,
+  };
+
+  return nshm;
+}
+
+int shm_obj_free(struct shmbuf fshm) {
+  return munmap(fshm.im.buf, fshm.im.size);
+}
+
 timespec time_now() {
   timespec t;
   clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
   return t;
 }
+
 long nanodiff(timespec start_time, timespec end_time) {
   return (end_time.tv_sec - start_time.tv_sec) * (long)1e9 +
          (end_time.tv_nsec - start_time.tv_nsec);
