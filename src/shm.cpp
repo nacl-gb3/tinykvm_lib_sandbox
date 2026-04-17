@@ -39,6 +39,7 @@ void get_image_bytes(char *input_stream) {
 // The library simulates a typilcal image decoding library such as libjpeg
 int main(int argc, char const *argv[]) {
   int err = 0;
+  int fd;
   struct shmbuf *shmp;
 
   std::string shmpath = "/sbshm";
