@@ -4,6 +4,7 @@
 #include "sandbox.hpp"
 #include "shm_lib.h"
 #include <algorithm>
+#include <atomic>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
+#include <semaphore.h>
 #include <sstream>
 #include <stdlib.h>
 #include <string.h>
@@ -35,16 +37,44 @@ inline timespec time_now();
 inline long nanodiff(timespec start_time, timespec end_time);
 
 struct shmbuf shm;
+std::atomic_uint64_t shm_ref_cnt;
 
-int sandbox_run(size_t im_page_cnt) {
-  shm.fd = open("/tmp/shm", O_RDWR);
-  if (shm.fd == -1) {
+int shm_init(size_t im_page_cnt) {
+  shm.sem1 = (sem_t *)malloc(sizeof(sem_t));
+  shm.sem2 = (sem_t *)malloc(sizeof(sem_t));
+
+  if (sem_init(shm.sem1, 1, 0) == -1) {
+    fprintf(stderr, "sem1 init failed\n");
     return -1;
   }
+  if (sem_init(shm.sem2, 1, 0) == -1) {
+    fprintf(stderr, "sem2 init failed\n");
+    return -1;
+  }
+
+  shm.fd = open("/tmp/shm", O_RDWR | O_CREAT, S_IRWXU);
+  if (shm.fd == -1) {
+    fprintf(stderr, "open for shared memory failed\n");
+    return -1;
+  }
+
   shm.im.size = im_page_cnt * BASE_INTERMEM_SIZE;
+
+  if (ftruncate(shm.fd, shm.im.size) == -1) {
+    fprintf(stderr, "ftruncate for shm fd failed\n");
+    return -1;
+  }
+
   shm.im.buf = (uint8_t *)mmap(NULL, shm.im.size, PROT_READ | PROT_WRITE,
                                MAP_SHARED, shm.fd, 0);
 
+  printf("0x%lx\n", (size_t)shm.sem1);
+  shm_ref_cnt++;
+
+  return (shm.im.buf == NULL);
+}
+
+int sandbox_run() {
   char prog[] = "./build/helloshm";
   std::vector<uint8_t> binary;
   std::vector<std::string> args;
@@ -61,6 +91,7 @@ int sandbox_run(size_t im_page_cnt) {
   }
 
   args.push_back(prog);
+  args.push_back((char *)shm.im.size);
 
   tinykvm::Machine::init();
 
@@ -71,30 +102,42 @@ int sandbox_run(size_t im_page_cnt) {
           cpu.stop();
           break;
         case 0x10303: {
-          // printf("CALLING COPY FROM HOST: 0x%x\n", scall);
+          printf("CALLING COPY FROM HOST: 0x%x\n", scall);
           auto regs = cpu.registers();
           uint64_t addr = (uint64_t)regs.rdi;
           size_t len = (size_t)regs.rsi;
-          // TODO: think of ways that things can go wrong and
-          // handle them
-          cpu.machine().copy_to_guest(addr, shm.im.buf, len);
-          regs.rax = 0;
+
+          if (sem_wait(shm.sem1) == -1) {
+            perror("sem_wait");
+            regs.rax = errno;
+          } else {
+            // TODO: think of ways that things can go wrong and
+            // handle them
+            cpu.machine().copy_to_guest(addr, shm.im.buf, len);
+            regs.rax = 0;
+          }
           cpu.set_registers(regs);
-          // printf("FINISHED COPY FROM HOST: 0x%x\n", scall);
+          printf("FINISHED COPY FROM HOST: 0x%x\n", scall);
           break;
         }
         case 0x10505: {
-          // printf("CALLING COPY TO HOST: 0x%x\n", scall);
+          printf("CALLING COPY TO HOST: 0x%x\n", scall);
           auto regs = cpu.registers();
           uint64_t addr = (uint64_t)regs.rdi;
           size_t len = (size_t)regs.rsi;
+
           // TODO: think of ways that things can go wrong and
           // handle them
           cpu.machine().copy_from_guest(shm.im.buf, addr, len);
-          printf("%s\n", (char *)shm.im.buf);
-          regs.rax = 0;
+
+          if (sem_post(shm.sem2) == -1) {
+            perror("sem_post");
+            regs.rax = errno;
+          } else {
+            regs.rax = 0;
+          }
           cpu.set_registers(regs);
-          // printf("FINISHED COPY TO HOST: 0x%x\n", scall);
+          printf("FINISHED COPY TO HOST: 0x%x\n", scall);
           break;
         }
         default:
@@ -201,52 +244,9 @@ int sandbox_run(size_t im_page_cnt) {
 
   uint64_t call_addr = verify_exists(master_vm, "my_backend");
 
-  // /* Remote debugger session */
-  // if (getenv("DEBUG")) {
-  //   auto *vm = &master_vm;
-  //   tinykvm::tinykvm_x86regs regs;
-
-  //   if (getenv("VMCALL")) {
-  //     master_vm.run();
-  //   }
-  //   if (getenv("FORK")) {
-  //     master_vm.prepare_copy_on_write();
-  //     vm = new tinykvm::Machine{master_vm, options};
-  //     vm->setup_call(regs, call_addr, rsp);
-  //     vm->set_registers(regs);
-  //   } else if (getenv("VMCALL")) {
-  //     master_vm.setup_call(regs, call_addr, rsp);
-  //     master_vm.set_registers(regs);
-  //   }
-
-  //   tinykvm::RSP server{filename, *vm, 2159};
-  //   printf("Waiting for connection localhost:2159...\n");
-  //   auto client = server.accept();
-  //   if (client != nullptr) {
-  //     /* Debugging session of _start -> main() */
-  //     printf("Connected\n");
-  //     try {
-  //       // client->set_verbose(true);
-  //       while (client->process_one())
-  //         ;
-  //     } catch (const tinykvm::MachineException &e) {
-  //       printf("EXCEPTION %s: %lu\n", e.what(), e.data());
-  //       vm->print_registers();
-  //     }
-  //   } else {
-  //     /* Resume execution normally */
-  //     vm->run();
-  //   }
-  //   /* Exit after debugging */
-  //   return 0;
-  // }
-
   asm("" ::: "memory");
   auto t0 = time_now();
   asm("" ::: "memory");
-
-  char buf[6] = "hello";
-  memcpy(shm.im.buf, buf, 6);
 
   /* Normal execution of _start -> main() */
   try {
@@ -273,25 +273,30 @@ int sandbox_run(size_t im_page_cnt) {
   return master_vm.return_value();
 }
 
-struct shmbuf get_shm_obj() {
-
-  struct shmbuf nshm;
-
-  nshm.sem1 = shm.sem1;
-  nshm.sem2 = shm.sem2;
-  nshm.fd = shm.fd;
-  nshm.im = {
+void get_shm_obj(struct shmbuf *nshm) {
+  nshm->sem1 = shm.sem1;
+  nshm->sem2 = shm.sem2;
+  nshm->fd = shm.fd;
+  nshm->im = {
       .buf = (uint8_t *)mmap(NULL, shm.im.size, PROT_READ | PROT_WRITE,
                              MAP_SHARED, shm.fd, 0),
 
       .size = shm.im.size,
   };
 
-  return nshm;
+  printf("0x%lx\n", (size_t)nshm->im.buf);
+
+  shm_ref_cnt++;
 }
 
-int shm_obj_free(struct shmbuf fshm) {
-  return munmap(fshm.im.buf, fshm.im.size);
+int shm_obj_free(struct shmbuf *fshm) {
+  int res = munmap(fshm->im.buf, fshm->im.size);
+  shm_ref_cnt--;
+  if (shm_ref_cnt == 0) {
+    free(shm.sem1);
+    free(shm.sem2);
+  }
+  return res;
 }
 
 timespec time_now() {

@@ -23,6 +23,8 @@ int main(int argc, char **argv) {
 
   size_t im_page_cnt = (size_t)argv[1];
 
+  printf("im_page_cnt sb: %ld\n", im_page_cnt);
+
   im.buf = (uint8_t *)calloc(im_page_cnt, BASE_INTERMEM_SIZE);
   im.size = im_page_cnt * BASE_INTERMEM_SIZE;
 

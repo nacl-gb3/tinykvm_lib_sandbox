@@ -41,13 +41,16 @@ int main(int argc, char const *argv[]) {
   int err = 0;
   /* HIGH LEVEL IDEA */
 
-
   /* Map the object into the caller's address space. */
 
-  char str[11] = "hello";
-  size_t len = 11;
+  char str[6] = "hello";
+  size_t len = 6;
 
-  /* Initialize semaphores as process-shared, with value 0. */
+  err = shm_init(1);
+  if (err) {
+    perror("shm_init");
+    return err;
+  }
 
   int sandbox_fd = fork();
   if (sandbox_fd == -1) {
@@ -55,7 +58,7 @@ int main(int argc, char const *argv[]) {
     return errno;
   } else if (!sandbox_fd) {
     /* Step 2: Run the vmsetup code from simple.cpp and fix bugs as needed */
-    err = sandbox_run(1);
+    err = sandbox_run();
     if (err) {
       perror("hello_shm");
     }
@@ -63,8 +66,30 @@ int main(int argc, char const *argv[]) {
   }
   std::cout << "successful fork\n";
 
-  /* Wait for 'sem1' to be posted by peer before touching
-     shared memory. */
+  struct shmbuf shm;
+  get_shm_obj(&shm);
+
+  printf("0x%lx\n", (size_t)shm.sem1);
+
+  std::cout << "attempting to strlcpy\n";
+  memcpy(shm.im.buf, str, len);
+
+  // pass control to the sandbox runtime
+  std::cout << "passing control to sandbox\n";
+  if (sem_post(shm.sem1) == -1) {
+    perror("sem_post to_guest");
+    return -1;
+  }
+
+  // return control to program
+  // if (sem_wait(shm.sem2) == -1) {
+  //   perror("sem_wait from_guest");
+  //   return -1;
+  // }
+
+  std::cout << "control returned from sandbox\n";
+
+  std::cout << (char *)shm.im.buf << "\n";
 
   // print shared result
 
@@ -110,6 +135,8 @@ int main(int argc, char const *argv[]) {
   delete[] input_stream;
   delete[] output_stream;
   */
+
+  shm_obj_free(&shm);
 
   return err;
 }
