@@ -13,442 +13,452 @@ namespace tinykvm {
 static constexpr bool VERBOSE_LOADER = false;
 static constexpr int MAX_LOADABLE_SEGMENTS = 16;
 
-DynamicElf is_dynamic_elf(std::string_view binary)
-{
-	if (binary.size() < sizeof(Elf64_Ehdr))
-	{
-		throw MachineException("ELF binary too short");
-	}
-	const auto* elf = (Elf64_Ehdr *)binary.data();
-	// Bounds-check program headers
-	if (elf->e_phoff + sizeof(Elf64_Phdr) * elf->e_phnum > binary.size())
-	{
-		throw MachineException("ELF binary too short");
-	}
-	// Check for interpreter section
-	const auto* phdr = (Elf64_Phdr *)(binary.data() + elf->e_phoff);
-	std::string interpreter;
-	for (int i = 0; i < elf->e_phnum; ++i)
-	{
-		if (phdr[i].p_type == PT_INTERP)
-		{
-			if (phdr[i].p_offset + phdr[i].p_filesz > binary.size())
-			{
-				throw MachineException("ELF interpreter section too short");
-			}
-			interpreter = std::string(
-				(const char *)binary.data() + phdr[i].p_offset,
-				phdr[i].p_filesz);
-			break;
-		}
-	}
+DynamicElf is_dynamic_elf(std::string_view binary) {
+  if (binary.size() < sizeof(Elf64_Ehdr)) {
+    throw MachineException("ELF binary too short");
+  }
+  const auto *elf = (Elf64_Ehdr *)binary.data();
+  // Bounds-check program headers
+  if (elf->e_phoff + sizeof(Elf64_Phdr) * elf->e_phnum > binary.size()) {
+    throw MachineException("ELF binary too short");
+  }
+  // Check for interpreter section
+  const auto *phdr = (Elf64_Phdr *)(binary.data() + elf->e_phoff);
+  std::string interpreter;
+  for (int i = 0; i < elf->e_phnum; ++i) {
+    if (phdr[i].p_type == PT_INTERP) {
+      if (phdr[i].p_offset + phdr[i].p_filesz > binary.size()) {
+        throw MachineException("ELF interpreter section too short");
+      }
+      interpreter = std::string((const char *)binary.data() + phdr[i].p_offset,
+                                phdr[i].p_filesz);
+      break;
+    }
+  }
 
-	const bool is_dynamic = (elf->e_type == ET_DYN) || !interpreter.empty();
-	if (elf->e_type == ET_DYN || elf->e_type == ET_EXEC) {
-		return DynamicElf{interpreter, is_dynamic};
-	}
-	else {
-		throw MachineException("Invalid ELF type: Not a static or dynamic executable");
-	}
+  const bool is_dynamic = (elf->e_type == ET_DYN) || !interpreter.empty();
+  if (elf->e_type == ET_DYN || elf->e_type == ET_EXEC) {
+    return DynamicElf{interpreter, is_dynamic};
+  } else {
+    throw MachineException(
+        "Invalid ELF type: Not a static or dynamic executable");
+  }
 }
 
-void Machine::elf_loader(std::string_view binary, const MachineOptions& options)
-{
-	if (UNLIKELY(binary.size() < sizeof(Elf64_Ehdr))) {
-		throw MachineException("ELF binary too short");
-	}
-	const auto* elf = (Elf64_Ehdr*) binary.data();
-	if (UNLIKELY(!validate_header(elf))) {
-		throw MachineException("Invalid ELF header! Not a 64-bit program?");
-	}
-	const DynamicElf elf_dynamic = is_dynamic_elf(binary);
-	const bool is_dynamic = elf_dynamic.is_dynamic;
-	if (UNLIKELY(elf_dynamic.has_interpreter())) {
-		throw MachineException(
-			"ELF w/interpreter must be loaded by the interpreter itself");
-	}
-	this->m_image_base = (is_dynamic) ? options.dylink_address_hint : 0x0;
+void Machine::elf_loader(std::string_view binary,
+                         const MachineOptions &options) {
+  if (UNLIKELY(binary.size() < sizeof(Elf64_Ehdr))) {
+    throw MachineException("ELF binary too short");
+  }
+  const auto *elf = (Elf64_Ehdr *)binary.data();
+  if (UNLIKELY(!validate_header(elf))) {
+    throw MachineException("Invalid ELF header! Not a 64-bit program?");
+  }
+  const DynamicElf elf_dynamic = is_dynamic_elf(binary);
+  const bool is_dynamic = elf_dynamic.is_dynamic;
+  if (UNLIKELY(elf_dynamic.has_interpreter())) {
+    throw MachineException(
+        "ELF w/interpreter must be loaded by the interpreter itself");
+  }
+  this->m_image_base = (is_dynamic) ? options.dylink_address_hint : 0x0;
 
-	// enumerate & load loadable segments
-	const auto program_headers = elf->e_phnum;
-	if (UNLIKELY(program_headers <= 0)) {
-		throw MachineException("ELF with no program-headers");
-	}
-	if (UNLIKELY(program_headers >= 64)) {
-		throw MachineException("ELF with too many program-headers");
-	}
-	if (UNLIKELY(elf->e_phoff + program_headers * sizeof(Elf64_Phdr) > binary.size())) {
-		throw MachineException("ELF program-headers are outside the binary");
-	}
-	if (UNLIKELY(elf->e_phoff + program_headers * sizeof(Elf64_Phdr) < elf->e_phoff)) {
-		throw MachineException("ELF program-header location is bogus");
-	}
-	if (UNLIKELY(elf->e_phoff % 8 != 0)) {
-		throw MachineException("ELF program-headers are misaligned");
-	}
+  // enumerate & load loadable segments
+  const auto program_headers = elf->e_phnum;
+  if (UNLIKELY(program_headers <= 0)) {
+    throw MachineException("ELF with no program-headers");
+  }
+  if (UNLIKELY(program_headers >= 64)) {
+    throw MachineException("ELF with too many program-headers");
+  }
+  if (UNLIKELY(elf->e_phoff + program_headers * sizeof(Elf64_Phdr) >
+               binary.size())) {
+    throw MachineException("ELF program-headers are outside the binary");
+  }
+  if (UNLIKELY(elf->e_phoff + program_headers * sizeof(Elf64_Phdr) <
+               elf->e_phoff)) {
+    throw MachineException("ELF program-header location is bogus");
+  }
+  if (UNLIKELY(elf->e_phoff % 8 != 0)) {
+    throw MachineException("ELF program-headers are misaligned");
+  }
 
-	/* Any old binary no longer relevant, just set new one. */
-	this->m_binary = binary;
+  /* Any old binary no longer relevant, just set new one. */
+  this->m_binary = binary;
 
-	const auto* phdr = (Elf64_Phdr*) (binary.data() + elf->e_phoff);
-	this->m_start_address = this->m_image_base + elf->e_entry;
-	this->m_heap_address = 0x0;
-	uint64_t image_begin = ~0UL;
+  const auto *phdr = (Elf64_Phdr *)(binary.data() + elf->e_phoff);
+  this->m_start_address = this->m_image_base + elf->e_entry;
+  this->m_heap_address = 0x0;
+  uint64_t image_begin = ~0UL;
 
-	int seg = 0;
-	for (const auto* hdr = phdr; hdr < phdr + program_headers; hdr++)
-	{
-		if constexpr (VERBOSE_LOADER) {
-			printf("Program header: 0x%lX -> 0x%lX\n",
-				hdr->p_vaddr, hdr->p_vaddr + hdr->p_memsz);
-		}
+  int seg = 0;
+  for (const auto *hdr = phdr; hdr < phdr + program_headers; hdr++) {
+    if constexpr (VERBOSE_LOADER) {
+      printf("Program header: 0x%lX -> 0x%lX\n", hdr->p_vaddr,
+             hdr->p_vaddr + hdr->p_memsz);
+    }
 
-		// Detect overlapping segments
-		if (hdr->p_type == PT_LOAD) {
-			for (const auto* ph = phdr; ph < hdr; ph++) {
-				if (ph->p_type == PT_LOAD &&
-					ph->p_vaddr < hdr->p_vaddr + hdr->p_filesz &&
-					ph->p_vaddr + ph->p_filesz >= hdr->p_vaddr) {
-					// Normally we would not care, but no normal ELF
-					// has overlapping segments, so treat as bogus.
-					throw MachineException("Overlapping ELF segments", hdr->p_vaddr);
-				}
-			}
-		}
+    // Detect overlapping segments
+    if (hdr->p_type == PT_LOAD) {
+      for (const auto *ph = phdr; ph < hdr; ph++) {
+        if (ph->p_type == PT_LOAD &&
+            ph->p_vaddr < hdr->p_vaddr + hdr->p_filesz &&
+            ph->p_vaddr + ph->p_filesz >= hdr->p_vaddr) {
+          // Normally we would not care, but no normal ELF
+          // has overlapping segments, so treat as bogus.
+          throw MachineException("Overlapping ELF segments", hdr->p_vaddr);
+        }
+      }
+    }
 
-		switch (hdr->p_type)
-		{
-			case PT_LOAD:
-				seg++;
-				if (seg > MAX_LOADABLE_SEGMENTS)
-					throw MachineException("Too many loadable segments");
-				// loadable program segments
-				this->elf_load_ph(binary, options, hdr);
-				break;
-			case PT_GNU_STACK:
-				//printf("GNU_STACK: 0x%lX\n", hdr->p_vaddr);
-				break;
-			case PT_GNU_RELRO:
-				//throw MachineException(
-				//	"Dynamically linked ELF binaries are not supported");
-				break;
-		}
+    switch (hdr->p_type) {
+    case PT_LOAD:
+      seg++;
+      if (seg > MAX_LOADABLE_SEGMENTS)
+        throw MachineException("Too many loadable segments");
+      // loadable program segments
+      this->elf_load_ph(binary, options, hdr);
+      break;
+    case PT_GNU_STACK:
+      // printf("GNU_STACK: 0x%lX\n", hdr->p_vaddr);
+      break;
+    case PT_GNU_RELRO:
+      // throw MachineException(
+      //	"Dynamically linked ELF binaries are not supported");
+      break;
+    }
 
-		const uint64_t endm = hdr->p_vaddr + hdr->p_memsz;
-		if (this->m_heap_address < endm)
-			this->m_heap_address = endm;
-		if (this->m_image_base + hdr->p_vaddr < image_begin)
-			image_begin = this->m_image_base + hdr->p_vaddr;
-	}
+    const uint64_t endm = hdr->p_vaddr + hdr->p_memsz;
+    if (this->m_heap_address < endm)
+      this->m_heap_address = endm;
+    if (this->m_image_base + hdr->p_vaddr < image_begin)
+      image_begin = this->m_image_base + hdr->p_vaddr;
+  }
 
-	this->m_heap_address += this->m_image_base;
-	this->m_heap_address = (this->m_heap_address + PageMask()) & ~PageMask();
-	/* The heap address hint can be used to move the heap out of the way,
-	   if the ELF loading code would trample memory, eg. the stack.
-	   This can be solved properly by implementing dynamic linker loading
-	   directly in TinyKVM. */
-	if (this->m_heap_address < options.heap_address_hint) {
-		if (options.verbose_loader) {
-			printf("* Heap address %p is below hint %p, moving it up\n",
-				(void*)this->m_heap_address, (void*)(uintptr_t)options.heap_address_hint);
-		}
-		this->m_heap_address = options.heap_address_hint;
-	}
+  this->m_heap_address += this->m_image_base;
+  this->m_heap_address = (this->m_heap_address + PageMask()) & ~PageMask();
+  /* The heap address hint can be used to move the heap out of the way,
+     if the ELF loading code would trample memory, eg. the stack.
+     This can be solved properly by implementing dynamic linker loading
+     directly in TinyKVM. */
+  if (this->m_heap_address < options.heap_address_hint) {
+    if (options.verbose_loader) {
+      printf("* Heap address %p is below hint %p, moving it up\n",
+             (void *)this->m_heap_address,
+             (void *)(uintptr_t)options.heap_address_hint);
+    }
+    this->m_heap_address = options.heap_address_hint;
+  }
 
-	/* BRK can reside in front of the image, ending where the image starts */
-	this->m_brk_address = 0x0;
-	this->m_brk_end_address = image_begin;
+  /* BRK can reside in front of the image, ending where the image starts */
+  this->m_brk_address = 0x0;
+  this->m_brk_end_address = image_begin;
 
-	/* Always allocate stack on heap, because we don't know where
-	   the kernel ends yet, and some run-times even depend on the
-	   stack being above the image base. */
-	const uint32_t STACK_SIZE = (options.stack_size + PageMask()) & ~PageMask();
-	this->m_stack_address = this->m_heap_address + STACK_SIZE;
-	this->m_brk_address   = this->m_stack_address;
-	this->m_brk_end_address = this->m_stack_address + BRK_MAX;
-	this->m_brk_end_address = (this->m_brk_end_address + 0x1FFFFF) & ~0x1FFFFF; // 2MB align
-	this->m_heap_address = this->m_brk_end_address;
+  /* Always allocate stack on heap, because we don't know where
+     the kernel ends yet, and some run-times even depend on the
+     stack being above the image base. */
+  const uint32_t STACK_SIZE = (options.stack_size + PageMask()) & ~PageMask();
+  this->m_stack_address = this->m_heap_address + STACK_SIZE;
+  this->m_brk_address = this->m_stack_address;
+  this->m_brk_end_address = this->m_stack_address + BRK_MAX;
+  this->m_brk_end_address =
+      (this->m_brk_end_address + 0x1FFFFF) & ~0x1FFFFF; // 2MB align
+  this->m_heap_address = this->m_brk_end_address;
 
-	/* Make sure mmap starts at a sane offset */
-	this->mmap_cache().current() = this->m_heap_address;
+  /* Make sure mmap starts at a sane offset */
+  this->mmap_cache().current() = this->m_heap_address;
 
-	/* Dynamic executables require some extra work, like relocation */
-	if (is_dynamic) {
-		this->dynamic_linking(binary, options);
-	}
+  /* Dynamic executables require some extra work, like relocation */
+  if (is_dynamic) {
+    this->dynamic_linking(binary, options);
+  }
 
-	if (options.verbose_loader) {
-	printf("* Entry is at %p\n", (void*) m_start_address);
-	printf("* BRK is at %p -> %p\n", (void*) m_brk_address,
-		(void*) m_brk_end_address);
-	printf("* Stack is at %p -> %p\n", (void*) (m_stack_address - STACK_SIZE),
-		(void*) (m_stack_address));
-	printf("* Heap starts at %p\n", (void*) m_heap_address);
-	this->fds().set_verbose(options.verbose_loader);
-	}
+  if (options.verbose_loader) {
+    printf("* Entry is at %p\n", (void *)m_start_address);
+    printf("* BRK is at %p -> %p\n", (void *)m_brk_address,
+           (void *)m_brk_end_address);
+    printf("* Stack is at %p -> %p\n", (void *)(m_stack_address - STACK_SIZE),
+           (void *)(m_stack_address));
+    printf("* Heap starts at %p\n", (void *)m_heap_address);
+    this->fds().set_verbose(options.verbose_loader);
+  }
 }
 
-void Machine::elf_load_ph(std::string_view binary, const MachineOptions& options, const void* vphdr)
-{
-	const auto* hdr = (const Elf64_Phdr*) vphdr;
+void Machine::elf_load_ph(std::string_view binary,
+                          const MachineOptions &options, const void *vphdr) {
+  const auto *hdr = (const Elf64_Phdr *)vphdr;
 
-	const auto*  src = binary.data() + hdr->p_offset;
-	const size_t len = hdr->p_filesz;
-	if (binary.size() <= hdr->p_offset ||
-		hdr->p_offset + len <= hdr->p_offset)
-	{
-		if (len == 0) return; /* Let's just pretend empty segments are OK. */
-		throw MachineException("Bogus ELF program segment offset", hdr->p_offset);
-	}
-	if (binary.size() < hdr->p_offset + len) {
-		throw MachineException("Not enough room for ELF program segment", len);
-	}
-	const address_t load_address = this->m_image_base + hdr->p_vaddr;
-	if (load_address + len < load_address) {
-		throw MachineException("Bogus ELF segment virtual base", hdr->p_vaddr);
-	}
+  const auto *src = binary.data() + hdr->p_offset;
+  const size_t len = hdr->p_filesz;
+  if (binary.size() <= hdr->p_offset || hdr->p_offset + len <= hdr->p_offset) {
+    if (len == 0)
+      return; /* Let's just pretend empty segments are OK. */
+    throw MachineException("Bogus ELF program segment offset", hdr->p_offset);
+  }
+  if (binary.size() < hdr->p_offset + len) {
+    throw MachineException("Not enough room for ELF program segment", len);
+  }
+  const address_t load_address = this->m_image_base + hdr->p_vaddr;
+  if (load_address + len < load_address) {
+    throw MachineException("Bogus ELF segment virtual base", hdr->p_vaddr);
+  }
 
-	if (options.verbose_loader) {
-	printf("* Loading segment of size %zu from %p to virtual %p\n",
-			len, src, (void*) load_address);
-	}
+  if (options.verbose_loader) {
+    printf("* load_address = 0x%lx + 0x%lx\n", this->m_image_base,
+           hdr->p_vaddr);
+    printf("* Loading segment of size %zu from %p to virtual %p\n", len, src,
+           (void *)load_address);
+  }
 
-	if (UNLIKELY(load_address < this->m_image_base)) {
-		throw MachineException("Bogus ELF segment virtual base", hdr->p_vaddr);
-	}
-	if (memory.safely_within(load_address, len)) {
-		std::memcpy(memory.at(load_address), src, len);
-	} else {
-		if (options.verbose_loader) {
-			printf("Segment at %p is too large or not safely within physical base at %p. Size: %zu vs %p\n",
-				(void*)load_address, (void*)memory.safebase, len, (void*)(memory.physbase + memory.size));
-			fflush(stdout);
-		}
-		throw MachineException("Unsafe PT_LOAD segment or executable too big", load_address);
-	}
+  if (UNLIKELY(load_address < this->m_image_base)) {
+    throw MachineException("Bogus ELF segment virtual base", hdr->p_vaddr);
+  }
+  if (memory.safely_within(load_address, len)) {
+    std::memcpy(memory.at(load_address), src, len);
+  } else {
+    if (options.verbose_loader) {
+      printf("Segment at %p is too large or not safely within physical base at "
+             "%p. Size: %zu vs %p\n",
+             (void *)load_address, (void *)memory.safebase, len,
+             (void *)(memory.physbase + memory.size));
+      fflush(stdout);
+    }
+    throw MachineException("Unsafe PT_LOAD segment or executable too big",
+                           load_address);
+  }
 }
 
-const Elf64_Shdr* section_by_name(std::string_view binary, const char* name)
-{
-	const auto* ehdr = elf_header(binary);
-	const auto* shdr = elf_offset<Elf64_Shdr> (binary, ehdr->e_shoff);
-	const auto& shstrtab = shdr[ehdr->e_shstrndx];
-	const char* strings = elf_offset<char>(binary, shstrtab.sh_offset);
+const Elf64_Shdr *section_by_name(std::string_view binary, const char *name) {
+  const auto *ehdr = elf_header(binary);
+  const auto *shdr = elf_offset<Elf64_Shdr>(binary, ehdr->e_shoff);
+  const auto &shstrtab = shdr[ehdr->e_shstrndx];
+  const char *strings = elf_offset<char>(binary, shstrtab.sh_offset);
 
-	for (auto i = 0; i < ehdr->e_shnum; i++)
-	{
-		const char* shname = &strings[shdr[i].sh_name];
-		if (strcmp(shname, name) == 0) {
-			return &shdr[i];
-		}
-	}
-	return nullptr;
+  for (auto i = 0; i < ehdr->e_shnum; i++) {
+    const char *shname = &strings[shdr[i].sh_name];
+    if (strcmp(shname, name) == 0) {
+      return &shdr[i];
+    }
+  }
+  return nullptr;
 }
-static const Elf64_Sym* elf_sym_index(std::string_view binary, const Elf64_Shdr* shdr, uint32_t symidx)
-{
-	assert(symidx < shdr->sh_size / sizeof(Elf64_Sym));
-	auto* symtab = elf_offset<Elf64_Sym>(binary, shdr->sh_offset);
-	return &symtab[symidx];
+static const Elf64_Sym *elf_sym_index(std::string_view binary,
+                                      const Elf64_Shdr *shdr, uint32_t symidx) {
+  assert(symidx < shdr->sh_size / sizeof(Elf64_Sym));
+  auto *symtab = elf_offset<Elf64_Sym>(binary, shdr->sh_offset);
+  return &symtab[symidx];
 }
-static const Elf64_Sym* resolve_symbol(std::string_view binary, const char* name)
-{
-	if (UNLIKELY(binary.empty())) return nullptr;
-	const auto* sym_hdr = section_by_name(binary, ".symtab");
-	if (UNLIKELY(sym_hdr == nullptr)) return nullptr;
-	const auto* str_hdr = section_by_name(binary, ".strtab");
-	if (UNLIKELY(str_hdr == nullptr)) return nullptr;
+static const Elf64_Sym *resolve_symbol(std::string_view binary,
+                                       const char *name) {
+  // printf("binary empty: %b\n", binary.empty());
+  if (UNLIKELY(binary.empty()))
+    return nullptr;
+  const auto *sym_hdr = section_by_name(binary, ".symtab");
+  // printf("sym_hdr empty: %b\n", sym_hdr == nullptr);
+  if (UNLIKELY(sym_hdr == nullptr))
+    return nullptr;
+  const auto *str_hdr = section_by_name(binary, ".strtab");
+  // printf("str_hdr empty: %b\n", str_hdr == nullptr);
+  if (UNLIKELY(str_hdr == nullptr))
+    return nullptr;
 
-	const auto* symtab = elf_sym_index(binary, sym_hdr, 0);
-	const size_t symtab_ents = sym_hdr->sh_size / sizeof(Elf64_Sym);
-	const char* strtab = elf_offset<char>(binary, str_hdr->sh_offset);
+  const auto *symtab = elf_sym_index(binary, sym_hdr, 0);
+  const size_t symtab_ents = sym_hdr->sh_size / sizeof(Elf64_Sym);
+  const char *strtab = elf_offset<char>(binary, str_hdr->sh_offset);
 
-	for (size_t i = 0; i < symtab_ents; i++)
-	{
-		const char* symname = &strtab[symtab[i].st_name];
-		if (strcmp(symname, name) == 0) {
-			return &symtab[i];
-		}
-	}
-	return nullptr;
-}
-
-uint64_t Machine::address_of(std::string_view name, std::string_view binary) const
-{
-	if (binary.empty())
-		binary = this->m_binary;
-	const auto* sym = resolve_symbol(binary, name.data());
-	return (sym) ? this->m_image_base + sym->st_value : 0x0;
-}
-uint64_t Machine::address_of(std::string_view name, const std::vector<uint8_t>& binary) const
-{
-	return this->address_of(name, std::string_view{
-		reinterpret_cast<const char*>(binary.data()), binary.size()});
-}
-std::string Machine::resolve(uint64_t rip, std::string_view binary) const
-{
-	if (binary.empty())
-		binary = m_binary;
-
-	if (UNLIKELY(binary.empty())) return "(no binary)";
-	const auto* sym_hdr = section_by_name(binary, ".symtab");
-	if (UNLIKELY(sym_hdr == nullptr)) return "(no symbols)";
-	const auto* str_hdr = section_by_name(binary, ".strtab");
-	if (UNLIKELY(str_hdr == nullptr)) return "(no strings)";
-
-	if (UNLIKELY(rip < this->m_image_base)) return "(error: rip < image base)";
-	const address_t relative_rip = rip - this->m_image_base;
-
-	const auto* symtab = elf_sym_index(binary, sym_hdr, 0);
-	const size_t symtab_ents = sym_hdr->sh_size / sizeof(Elf64_Sym);
-	const char* strtab = elf_offset<char>(binary, str_hdr->sh_offset);
-
-	char result[2048];
-	uint64_t second_best_address = ~0ULL;
-	const Elf64_Sym* second_best = nullptr;
-	for (size_t i = 0; i < symtab_ents; i++)
-	{
-		/* Only look at functions (for now). Old-style symbols have no FUNC. */
-		if (symtab[i].st_info & STT_FUNC) {
-			/* Direct matches only (for now) */
-			if (relative_rip >= symtab[i].st_value && relative_rip < symtab[i].st_value + symtab[i].st_size)
-			{
-				const uint64_t offset = relative_rip - symtab[i].st_value;
-				int len = snprintf(result, sizeof(result),
-					"%s + 0x%lX", &strtab[symtab[i].st_name], offset);
-				if (len > 0)
-					return std::string(result, len);
-				else
-					return std::string(&strtab[symtab[i].st_name]);
-			}
-			else if (relative_rip >= symtab[i].st_value && second_best_address > symtab[i].st_value)
-			{
-				// We found a better match, but not exact
-				second_best_address = symtab[i].st_value;
-				second_best = &symtab[i];
-			}
-		}
-	}
-	/// If we didn't find a direct match, return the closest one
-	if (second_best != nullptr) {
-		int len = snprintf(result, sizeof(result),
-			"%s + 0x%lX", &strtab[second_best->st_name],
-			relative_rip - second_best->st_value);
-		if (len > 0)
-			return std::string(result, len);
-		else
-			return std::string(&strtab[second_best->st_name]);
-	}
-	return "(unknown)";
+  for (size_t i = 0; i < symtab_ents; i++) {
+    const char *symname = &strtab[symtab[i].st_name];
+    printf("%s\n", symname);
+    if (strcmp(symname, name) == 0) {
+      printf("target found: %s\n", name);
+      return &symtab[i];
+    }
+  }
+  printf("target: %s\n", name);
+  printf("function not found\n");
+  return nullptr;
 }
 
-bool Machine::relocate_section(const char* section_name, const char* sym_section)
-{
-	const auto* rela = section_by_name(m_binary, section_name);
-	if (rela == nullptr) {
-		printf("No such section: %s\n", section_name);
-		return false;
-	}
-	const auto* dyn_hdr = section_by_name(m_binary, sym_section);
-	if (dyn_hdr == nullptr) {
-		printf("No such symbol section: %s\n", sym_section);
-		return false;
-	}
-	const size_t rela_ents = rela->sh_size / sizeof(Elf64_Rela);
-	if (rela_ents > 600000) {
-		throw MachineException("Too many relocations", rela_ents);
-	}
+uint64_t Machine::address_of(std::string_view name,
+                             std::string_view binary) const {
+  //printf("address_of\n");
+  if (binary.empty())
+    binary = this->m_binary;
+  const auto *sym = resolve_symbol(binary, name.data());
+  //printf("function found: %b\n", sym != 0);
+  return (sym) ? this->m_image_base + sym->st_value : 0x0;
+}
+uint64_t Machine::address_of(std::string_view name,
+                             const std::vector<uint8_t> &binary) const {
+  return this->address_of(
+      name, std::string_view{reinterpret_cast<const char *>(binary.data()),
+                             binary.size()});
+}
+std::string Machine::resolve(uint64_t rip, std::string_view binary) const {
+  if (binary.empty())
+    binary = m_binary;
 
-	auto* rela_addr = elf_offset_array<Elf64_Rela>(m_binary, rela->sh_offset, rela_ents);
-	for (size_t i = 0; i < rela_ents; i++)
-	{
-		const auto rtype = ELF64_R_TYPE(rela_addr[i].r_info);
-		if (rtype != R_X86_64_RELATIVE && rtype != R_X86_64_IRELATIVE) {
-			if constexpr (VERBOSE_LOADER) {
-				printf("Skipping non-relative relocation: %lu\n", rtype);
-			}
-			continue;
-		}
+  if (UNLIKELY(binary.empty()))
+    return "(no binary)";
+  const auto *sym_hdr = section_by_name(binary, ".symtab");
+  if (UNLIKELY(sym_hdr == nullptr))
+    return "(no symbols)";
+  const auto *str_hdr = section_by_name(binary, ".strtab");
+  if (UNLIKELY(str_hdr == nullptr))
+    return "(no strings)";
 
-		const address_t addr = this->m_image_base + rela_addr[i].r_offset;
-		if (memory.safely_within(addr, sizeof(address_t))) {
-			if (rtype == R_X86_64_RELATIVE) {
-				*(address_t*) memory.safely_at(addr, sizeof(address_t)) = this->m_image_base + rela_addr[i].r_addend;
-			} else {
-				/* Best-effort bootstrap handling for IFUNC relocations.
-				   A full implementation must evaluate the resolver and write
-				   its return value. */
-				*(address_t*) memory.safely_at(addr, sizeof(address_t)) = this->m_image_base + rela_addr[i].r_addend;
-			}
-		} else {
-			if constexpr (VERBOSE_LOADER) {
-				printf("Relocation failed at address: %p\n", (void*)addr);
-			}
-		}
-	}
-	return true;
+  if (UNLIKELY(rip < this->m_image_base))
+    return "(error: rip < image base)";
+  const address_t relative_rip = rip - this->m_image_base;
+
+  const auto *symtab = elf_sym_index(binary, sym_hdr, 0);
+  const size_t symtab_ents = sym_hdr->sh_size / sizeof(Elf64_Sym);
+  const char *strtab = elf_offset<char>(binary, str_hdr->sh_offset);
+
+  char result[2048];
+  uint64_t second_best_address = ~0ULL;
+  const Elf64_Sym *second_best = nullptr;
+  for (size_t i = 0; i < symtab_ents; i++) {
+    /* Only look at functions (for now). Old-style symbols have no FUNC. */
+    if (symtab[i].st_info & STT_FUNC) {
+      /* Direct matches only (for now) */
+      if (relative_rip >= symtab[i].st_value &&
+          relative_rip < symtab[i].st_value + symtab[i].st_size) {
+        const uint64_t offset = relative_rip - symtab[i].st_value;
+        int len = snprintf(result, sizeof(result), "%s + 0x%lX",
+                           &strtab[symtab[i].st_name], offset);
+        if (len > 0)
+          return std::string(result, len);
+        else
+          return std::string(&strtab[symtab[i].st_name]);
+      } else if (relative_rip >= symtab[i].st_value &&
+                 second_best_address > symtab[i].st_value) {
+        // We found a better match, but not exact
+        second_best_address = symtab[i].st_value;
+        second_best = &symtab[i];
+      }
+    }
+  }
+  /// If we didn't find a direct match, return the closest one
+  if (second_best != nullptr) {
+    int len = snprintf(result, sizeof(result), "%s + 0x%lX",
+                       &strtab[second_best->st_name],
+                       relative_rip - second_best->st_value);
+    if (len > 0)
+      return std::string(result, len);
+    else
+      return std::string(&strtab[second_best->st_name]);
+  }
+  return "(unknown)";
 }
 
-bool Machine::relocate_relr_section(const char* section_name)
-{
-	const auto* relr = section_by_name(m_binary, section_name);
-	if (relr == nullptr) {
-		return false;
-	}
-	if ((relr->sh_size % sizeof(Elf64_Addr)) != 0) {
-		throw MachineException("Malformed RELR section", relr->sh_size);
-	}
+bool Machine::relocate_section(const char *section_name,
+                               const char *sym_section) {
+  const auto *rela = section_by_name(m_binary, section_name);
+  if (rela == nullptr) {
+    printf("No such section: %s\n", section_name);
+    return false;
+  }
+  const auto *dyn_hdr = section_by_name(m_binary, sym_section);
+  if (dyn_hdr == nullptr) {
+    printf("No such symbol section: %s\n", sym_section);
+    return false;
+  }
+  const size_t rela_ents = rela->sh_size / sizeof(Elf64_Rela);
+  if (rela_ents > 600000) {
+    throw MachineException("Too many relocations", rela_ents);
+  }
 
-	const size_t relr_ents = relr->sh_size / sizeof(Elf64_Addr);
-	auto* relr_addr = elf_offset_array<Elf64_Addr>(m_binary, relr->sh_offset, relr_ents);
+  auto *rela_addr =
+      elf_offset_array<Elf64_Rela>(m_binary, rela->sh_offset, rela_ents);
+  for (size_t i = 0; i < rela_ents; i++) {
+    const auto rtype = ELF64_R_TYPE(rela_addr[i].r_info);
+    if (rtype != R_X86_64_RELATIVE && rtype != R_X86_64_IRELATIVE) {
+      if constexpr (VERBOSE_LOADER) {
+        printf("Skipping non-relative relocation: %lu\n", rtype);
+      }
+      continue;
+    }
 
-	address_t where = 0;
-	for (size_t i = 0; i < relr_ents; i++)
-	{
-		const uint64_t entry = relr_addr[i];
-		if ((entry & 1ULL) == 0)
-		{
-			where = this->m_image_base + entry;
-			if (!memory.safely_within(where, sizeof(address_t))) {
-				throw MachineException("RELR relocation target out of bounds", where);
-			}
-			*(address_t*)memory.safely_at(where, sizeof(address_t)) += this->m_image_base;
-			where += sizeof(address_t);
-		}
-		else
-		{
-			if (UNLIKELY(where == 0)) {
-				throw MachineException("Malformed RELR sequence", entry);
-			}
-			/* ELF RELR bitmap entry format:
-			   - LSB=1 marks bitmap entry
-			   - upper 63 bits encode relocations for subsequent machine words
-			   This mirrors the generic RELR decoding model used in Linux early
-			   relocation code (arch/arm64/kernel/pi/relocate.c). */
-			uint64_t bits = entry >> 1;
-			while (bits != 0)
-			{
-				const unsigned bit = __builtin_ctzll(bits);
-				const address_t reloc_addr = where + bit * sizeof(address_t);
-				if (!memory.safely_within(reloc_addr, sizeof(address_t))) {
-					throw MachineException("RELR relocation bitmap target out of bounds", reloc_addr);
-				}
-				*(address_t*)memory.safely_at(reloc_addr, sizeof(address_t)) += this->m_image_base;
-				bits &= (bits - 1);
-			}
-			/* Consumed one 63-bit bitmap window (64-bit word minus 1 tag bit). */
-			where += 63 * sizeof(address_t);
-		}
-	}
-	return true;
+    const address_t addr = this->m_image_base + rela_addr[i].r_offset;
+    if (memory.safely_within(addr, sizeof(address_t))) {
+      if (rtype == R_X86_64_RELATIVE) {
+        *(address_t *)memory.safely_at(addr, sizeof(address_t)) =
+            this->m_image_base + rela_addr[i].r_addend;
+      } else {
+        /* Best-effort bootstrap handling for IFUNC relocations.
+           A full implementation must evaluate the resolver and write
+           its return value. */
+        *(address_t *)memory.safely_at(addr, sizeof(address_t)) =
+            this->m_image_base + rela_addr[i].r_addend;
+      }
+    } else {
+      if constexpr (VERBOSE_LOADER) {
+        printf("Relocation failed at address: %p\n", (void *)addr);
+      }
+    }
+  }
+  return true;
 }
 
-void Machine::dynamic_linking(std::string_view binary, const MachineOptions& options)
-{
-	(void)binary;
-	(void)options;
-	this->relocate_relr_section(".relr.dyn");
-	this->relocate_section(".rela.dyn", ".dynsym");
-	//this->relocate_section(".rela.plt", ".dynsym");
+bool Machine::relocate_relr_section(const char *section_name) {
+  const auto *relr = section_by_name(m_binary, section_name);
+  if (relr == nullptr) {
+    return false;
+  }
+  if ((relr->sh_size % sizeof(Elf64_Addr)) != 0) {
+    throw MachineException("Malformed RELR section", relr->sh_size);
+  }
+
+  const size_t relr_ents = relr->sh_size / sizeof(Elf64_Addr);
+  auto *relr_addr =
+      elf_offset_array<Elf64_Addr>(m_binary, relr->sh_offset, relr_ents);
+
+  address_t where = 0;
+  for (size_t i = 0; i < relr_ents; i++) {
+    const uint64_t entry = relr_addr[i];
+    if ((entry & 1ULL) == 0) {
+      where = this->m_image_base + entry;
+      if (!memory.safely_within(where, sizeof(address_t))) {
+        throw MachineException("RELR relocation target out of bounds", where);
+      }
+      *(address_t *)memory.safely_at(where, sizeof(address_t)) +=
+          this->m_image_base;
+      where += sizeof(address_t);
+    } else {
+      if (UNLIKELY(where == 0)) {
+        throw MachineException("Malformed RELR sequence", entry);
+      }
+      /* ELF RELR bitmap entry format:
+         - LSB=1 marks bitmap entry
+         - upper 63 bits encode relocations for subsequent machine words
+         This mirrors the generic RELR decoding model used in Linux early
+         relocation code (arch/arm64/kernel/pi/relocate.c). */
+      uint64_t bits = entry >> 1;
+      while (bits != 0) {
+        const unsigned bit = __builtin_ctzll(bits);
+        const address_t reloc_addr = where + bit * sizeof(address_t);
+        if (!memory.safely_within(reloc_addr, sizeof(address_t))) {
+          throw MachineException("RELR relocation bitmap target out of bounds",
+                                 reloc_addr);
+        }
+        *(address_t *)memory.safely_at(reloc_addr, sizeof(address_t)) +=
+            this->m_image_base;
+        bits &= (bits - 1);
+      }
+      /* Consumed one 63-bit bitmap window (64-bit word minus 1 tag bit). */
+      where += 63 * sizeof(address_t);
+    }
+  }
+  return true;
 }
 
+void Machine::dynamic_linking(std::string_view binary,
+                              const MachineOptions &options) {
+  (void)binary;
+  (void)options;
+  this->relocate_relr_section(".relr.dyn");
+  this->relocate_section(".rela.dyn", ".dynsym");
+  // this->relocate_section(".rela.plt", ".dynsym");
 }
+
+} // namespace tinykvm

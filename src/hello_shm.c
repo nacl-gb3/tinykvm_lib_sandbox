@@ -27,23 +27,16 @@ struct intermem {
 
 struct intermem im;
 
+void *sb_malloc(size_t size) { return malloc(size); }
+
+int print_from_host(const char *words) {
+  printf("made it here in the sandbox\n");
+  printf("words: %p\n", words);
+  printf("%s\n", words);
+  return 0;
+}
+
 int main(int argc, char **argv) {
-  // TODO: vmcall to get data from host
-  int err = syscall(COPY_FROM_HOST, im.buf, BUF_SIZE);
-  if (err == -1) {
-    errExit("COPY_FROM_HOST");
-  }
-  fprintf(stderr, "%s\n", im.buf);
-
-  char str[11] = "hello back";
-  memcpy(im.buf, str, 11);
-  /* replace with switch statement to call into sample library */
-
-  // TODO: vmcall to send data back to host
-  err = syscall(COPY_TO_HOST, im.buf, BUF_SIZE);
-  if (err == -1) {
-    errExit("COPY_TO_HOST");
-  }
-
+  fprintf(stderr, "%s\n", "things initialized");
   return 0;
 }

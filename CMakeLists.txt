@@ -30,3 +30,4 @@ target_link_libraries(shmdemo tinykvm)
 add_executable(helloshm
 	src/hello_shm.c
 )
+# target_link_libraries(helloshm "-static")

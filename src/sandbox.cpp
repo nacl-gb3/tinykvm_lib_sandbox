@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <csignal>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -17,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <tinykvm/common.hpp>
 #include <tinykvm/machine.hpp>
 
 #include <tinykvm/rsp_client.hpp>
@@ -31,6 +33,50 @@ static uint64_t verify_exists(tinykvm::Machine &vm, const char *name) {
     //		exit(1);
   }
   return addr;
+}
+
+struct sandbox_buf *malloc_in_sandbox(tinykvm::Machine &mach, size_t size) {
+  auto mmap_addr = mach.address_of("mmap");
+  printf("0x%lx\n", mmap_addr);
+  if (!mmap_addr) {
+    printf("mmap not found in sandbox\n");
+    return NULL;
+  }
+  mach.vmcall(mmap_addr, NULL, size, PROT_READ | PROT_WRITE,
+              MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+  uint64_t ret = mach.return_value();
+  printf("0x%lx\n", ret);
+  if (!ret) {
+    /* no memory or else smth went wrong */
+    return NULL;
+  }
+
+  std::span<uint8_t> buf;
+  try {
+    buf = mach.writable_memview(ret, size);
+  } catch (tinykvm::MachineException()) {
+    mach.vmcall("munmap", ret);
+    return NULL;
+  };
+
+  struct sandbox_buf *sbuf =
+      (struct sandbox_buf *)malloc(sizeof(struct sandbox_buf));
+  if (!sbuf) {
+    mach.vmcall("munmap", ret);
+    return NULL;
+  }
+
+  sbuf->gva = ret;
+  sbuf->buf = buf;
+
+  return sbuf;
+}
+
+int free_in_sandbox(tinykvm::Machine &mach, struct sandbox_buf *sbuf) {
+  /* free vm memory */
+  mach.vmcall("munmap", sbuf->gva);
+  free((void *)sbuf);
+  return 0;
 }
 
 struct shmbuf *shmp;
@@ -77,6 +123,7 @@ int sandbox_run() {
   const tinykvm::DynamicElf dyn_elf = tinykvm::is_dynamic_elf(
       std::string_view{(const char *)binary.data(), binary.size()});
   if (dyn_elf.is_dynamic) {
+    printf("dynamic isn't it\n");
     // Add ld-linux.so.2 as first argument
     static const std::string ld_linux_so = "/lib64/ld-linux-x86-64.so.2";
     binary = load_file(ld_linux_so);
@@ -228,11 +275,9 @@ int sandbox_run() {
   }
 
   // for debugging information
-  // master_vm.set_verbose_system_calls(true);
+  master_vm.set_verbose_system_calls(true);
 
   master_vm.setup_linux(args, {"LC_TYPE=C", "LC_ALL=C", "USER=root"});
-
-  const auto rsp = master_vm.stack_address();
 
   uint64_t call_addr = verify_exists(master_vm, "my_backend");
 
@@ -241,8 +286,27 @@ int sandbox_run() {
   asm("" ::: "memory");
 
   /* Normal execution of _start -> main() */
+
+  // args.push_back((char *)sbuf->gva);
+
   try {
     master_vm.run();
+    char str[22] = "hello out the sandbox";
+    struct sandbox_buf *sbuf = malloc_in_sandbox(master_vm, 22);
+    if (!sbuf) {
+      return -1;
+    }
+    // idk if this is safe but okay
+    strlcpy((char *)sbuf->buf.data(), str, 22);
+    uint64_t print_from_host_addr = master_vm.address_of("print_from_host");
+    printf("0x%lx\n", print_from_host_addr);
+    if (!print_from_host_addr) {
+      printf("print_from_host not found in sandbox\n");
+      return -2;
+    }
+    printf("0x%lx\n", sbuf->gva);
+    master_vm.vmcall(print_from_host_addr, sbuf->gva);
+    // master_vm.run();
   } catch (const tinykvm::MachineException &me) {
     master_vm.print_registers();
     fprintf(stderr, "Machine exception: %s  Data: 0x%lX\n", me.what(),
@@ -253,6 +317,7 @@ int sandbox_run() {
     throw;
   }
 
+  // int err = free_in_sandbox(master_vm, sbuf);
   asm("" ::: "memory");
   auto t1 = time_now();
   asm("" ::: "memory");

@@ -158,6 +158,7 @@ void Machine::vmcall(uint64_t addr, Args&&... args)
 	auto& regs = vcpu.registers();
 	this->setup_call(regs, addr, this->stack_address(), std::forward<Args> (args)...);
 	vcpu.set_registers(regs);
+	printf("made it here\n");
 	this->run();
 }
 

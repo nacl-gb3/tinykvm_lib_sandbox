@@ -32,7 +32,7 @@ figure out what tinykvm filtering is doing
 * Setup the stack inside the vm to be the same stack depth as the host
 * Quick suggesstion: copy 1K of the stack
 * Look to RLBox plugin;  
-* Before you start executing instructions in a funciton; mod 32 == 8
+* Before you start executing instructions in a function; mod 32 == 8
   (look up why this is)
 * Change calls to enter vm and do the necessary things (since we can't
 call functions directly)
@@ -58,3 +58,24 @@ call functions directly)
     * want to base the mapping off of the allocated shared memory 
     * keep track of all memory you have given dlmalloc
 * DLMALLOC can be exposed to acts as malloc and free
+
+4/23/26 (no meeting)
+* Shared Memory Initialization Plan
+  0. Shared Memory Object
+    * Fields:
+      * intptr_t gva (the guest virtual address received from mmap)
+      * std::vector<WritablePage> pages
+    * Function:
+      * init --> basically the copy_to_guest function but it returns
+      a vector of all the pages it gets
+      * verify --> make sure that the virtual pages are mapped to the
+      same areas
+        * can we pin the pages instead perhaps
+  1. vmcall memmap at shared memory address
+  2. set a shared memory variable to the gva that you
+  get back
+  3. create a vector of the pages that were mapped to that
+  variable by basically doing an altered version of copy_to_guest
+    * question: will the pages be evicted at any time; i have concern
+* Shared Memory Uninitialization Plan
+  1. vmcall mem_unmap at shared memory address

@@ -2,10 +2,12 @@
 #define SANDBOX_H
 
 #include <semaphore.h>
+#include <span>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <tinykvm/machine.hpp>
 
 #define errExit(msg)                                                           \
   do {                                                                         \
@@ -33,7 +35,15 @@ struct shmbuf {
   struct intermem im;
 };
 
+struct sandbox_buf {
+  uint64_t gva;
+  std::span<uint8_t> buf;
+};
+
 #define BASE_INTERMEM_SIZE 4096
+
+struct sandbox_buf *malloc_in_sandbox(tinykvm::Machine&, size_t);
+int free_in_sandbox(tinykvm::Machine&, uint64_t);
 
 int shm_init();
 int sandbox_run();

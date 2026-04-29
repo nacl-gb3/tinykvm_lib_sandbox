@@ -47,47 +47,47 @@ int main(int argc, char const *argv[]) {
   char str[6] = "hello";
   size_t len = 6;
 
-  err = shm_init();
+  // err = shm_init();
+  // if (err) {
+  //  perror("shm_init");
+  // return err;
+  //}
+  err = sandbox_run();
   if (err) {
-    perror("shm_init");
-    return err;
+    perror("hello_shm");
   }
+  return err;
 
-  int sandbox_fd = fork();
-  if (sandbox_fd == -1) {
-    std::cerr << "Error: sandbox fork failed\n";
-    return errno;
-  } else if (!sandbox_fd) {
-    /* Step 2: Run the vmsetup code from simple.cpp and fix bugs as needed */
-    err = sandbox_run();
-    if (err) {
-      perror("hello_shm");
-    }
-    return err;
-  }
-  std::cout << "successful fork\n";
+  // int sandbox_fd = fork();
+  // if (sandbox_fd == -1) {
+  //   std::cerr << "Error: sandbox fork failed\n";
+  //   return errno;
+  // } else if (!sandbox_fd) {
+  //  /* Step 2: Run the vmsetup code from simple.cpp and fix bugs as needed */
+  // }
+  // std::cout << "successful fork\n";
 
-  shmp = get_shm_obj();
+  // shmp = get_shm_obj();
 
-  std::cout << "attempting to strlcpy\n";
-  memcpy(shmp->im.buf, str, len);
+  // std::cout << "attempting to strlcpy\n";
+  // memcpy(shmp->im.buf, str, len);
 
   // pass control to the sandbox runtime
-  std::cout << "passing control to sandbox\n";
-  if (sem_post(&shmp->sem1) == -1) {
-    perror("sem_post to_guest");
-    return -1;
-  }
+  // std::cout << "passing control to sandbox\n";
+  // if (sem_post(&shmp->sem1) == -1) {
+  // perror("sem_post to_guest");
+  // return -1;
+  //}
 
   // return control to program
-  if (sem_wait(&shmp->sem2) == -1) {
-    perror("sem_wait from_guest");
-    return -1;
-  }
+  // if (sem_wait(&shmp->sem2) == -1) {
+  // perror("sem_wait from_guest");
+  // return -1;
+  //}
 
   std::cout << "control returned from sandbox\n";
 
-  std::cout << (char *)shmp->im.buf << "\n";
+  // std::cout << (char *)shmp->im.buf << "\n";
 
   // print shared result
 
