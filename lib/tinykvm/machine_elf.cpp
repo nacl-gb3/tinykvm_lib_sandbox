@@ -267,14 +267,14 @@ static const Elf64_Sym *resolve_symbol(std::string_view binary,
 
   for (size_t i = 0; i < symtab_ents; i++) {
     const char *symname = &strtab[symtab[i].st_name];
-    printf("%s\n", symname);
+    // printf("%s\n", symname);
     if (strcmp(symname, name) == 0) {
-      printf("target found: %s\n", name);
+      // printf("target found: %s\n", name);
       return &symtab[i];
     }
   }
-  printf("target: %s\n", name);
-  printf("function not found\n");
+  // printf("target: %s\n", name);
+  // printf("function not found\n");
   return nullptr;
 }
 

@@ -8,9 +8,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define COPY_FROM_HOST 0x10303
-#define COPY_TO_HOST 0x10505
-
 #define errExit(msg)                                                           \
   do {                                                                         \
     printf("%d\n", errno);                                                     \
@@ -18,21 +15,12 @@
     exit(EXIT_FAILURE);                                                        \
   } while (0)
 
-#define BUF_SIZE (1024 * 4) /* Maximum size for exchanged string */
-
-struct intermem {
-  uint8_t buf[BUF_SIZE];
-  // size_t size;
-};
-
-struct intermem im;
-
 void *sb_malloc(size_t size) { return malloc(size); }
 
-int print_from_host(const char *words) {
-  printf("made it here in the sandbox\n");
+int print_from_host(char *words) {
   printf("words: %p\n", words);
   printf("%s\n", words);
+  strlcpy(words, "hello fr in the sandbox", 22);
   return 0;
 }
 
