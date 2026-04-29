@@ -19,7 +19,7 @@
 
 namespace tinykvm {
 #define USERMODE_FLAGS (0x7 | 1UL << 63) /* USER, READ/WRITE, PRESENT, NX */
-static constexpr bool VERBOSE_MMAP = false;
+static constexpr bool VERBOSE_MMAP = true;
 
 vMemory::vMemory(Machine& m, const MachineOptions& options,
 	uint64_t ph, uint64_t sf, char* p, size_t s, int fd, bool own)

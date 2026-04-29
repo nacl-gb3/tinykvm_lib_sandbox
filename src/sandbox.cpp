@@ -275,7 +275,7 @@ int sandbox_run() {
   }
 
   // for debugging information
-  master_vm.set_verbose_system_calls(true);
+  // master_vm.set_verbose_system_calls(true);
 
   master_vm.setup_linux(args, {"LC_TYPE=C", "LC_ALL=C", "USER=root"});
 
@@ -306,6 +306,7 @@ int sandbox_run() {
     }
     printf("0x%lx\n", sbuf->gva);
     master_vm.vmcall(print_from_host_addr, sbuf->gva);
+    printf("%s\n", (char *)sbuf->buf.data());
     // master_vm.run();
   } catch (const tinykvm::MachineException &me) {
     master_vm.print_registers();
