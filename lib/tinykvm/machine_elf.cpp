@@ -249,15 +249,12 @@ static const Elf64_Sym *elf_sym_index(std::string_view binary,
 }
 static const Elf64_Sym *resolve_symbol(std::string_view binary,
                                        const char *name) {
-  // printf("binary empty: %b\n", binary.empty());
   if (UNLIKELY(binary.empty()))
     return nullptr;
   const auto *sym_hdr = section_by_name(binary, ".symtab");
-  // printf("sym_hdr empty: %b\n", sym_hdr == nullptr);
   if (UNLIKELY(sym_hdr == nullptr))
     return nullptr;
   const auto *str_hdr = section_by_name(binary, ".strtab");
-  // printf("str_hdr empty: %b\n", str_hdr == nullptr);
   if (UNLIKELY(str_hdr == nullptr))
     return nullptr;
 
@@ -267,24 +264,18 @@ static const Elf64_Sym *resolve_symbol(std::string_view binary,
 
   for (size_t i = 0; i < symtab_ents; i++) {
     const char *symname = &strtab[symtab[i].st_name];
-    // printf("%s\n", symname);
     if (strcmp(symname, name) == 0) {
-      // printf("target found: %s\n", name);
       return &symtab[i];
     }
   }
-  // printf("target: %s\n", name);
-  // printf("function not found\n");
   return nullptr;
 }
 
 uint64_t Machine::address_of(std::string_view name,
                              std::string_view binary) const {
-  //printf("address_of\n");
   if (binary.empty())
     binary = this->m_binary;
   const auto *sym = resolve_symbol(binary, name.data());
-  //printf("function found: %b\n", sym != 0);
   return (sym) ? this->m_image_base + sym->st_value : 0x0;
 }
 uint64_t Machine::address_of(std::string_view name,
@@ -293,6 +284,13 @@ uint64_t Machine::address_of(std::string_view name,
       name, std::string_view{reinterpret_cast<const char *>(binary.data()),
                              binary.size()});
 }
+
+uint64_t Machine::AddressOf(std::string_view symbol, std::string_view binary)
+{
+	const auto* sym = resolve_symbol(binary, symbol.data());
+	return (sym) ? sym->st_value : 0x0;
+}
+
 std::string Machine::resolve(uint64_t rip, std::string_view binary) const {
   if (binary.empty())
     binary = m_binary;
